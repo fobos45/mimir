@@ -55,6 +55,15 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.jna)
     implementation(libs.coil.compose)
+    implementation(libs.coil.network)
     kapt(libs.androidx.room.compiler)
     debugImplementation(libs.androidx.ui.tooling)
+}
+
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "androidx.exifinterface") {
+            useVersion("1.3.7")
+        }
+    }
 }

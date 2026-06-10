@@ -15,7 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 
 private val avatarColors = listOf(
     Color(0xFF7C6AF7), Color(0xFF00D9A3), Color(0xFFFF6B6B),

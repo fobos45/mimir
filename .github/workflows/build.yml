@@ -5,7 +5,6 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  # Позволяет запустить сборку вручную через кнопку на GitHub
   workflow_dispatch:
 
 jobs:
@@ -28,7 +27,7 @@ jobs:
           path: mimir-master
 
       # ── 2. Кэш Rust ──────────────────────────────────────────────────────────
-      - name: Кэш cargo registry
+      - name: Кэш cargo
         uses: actions/cache@v4
         with:
           path: |
@@ -38,11 +37,11 @@ jobs:
           key: cargo-${{ hashFiles('mimir-master/Cargo.lock') }}
           restore-keys: cargo-
 
-      # ── 3. Устанавливаем Rust ─────────────────────────────────────────────────
+      # ── 3. Rust ───────────────────────────────────────────────────────────────
       - name: Установить Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: >
+          targets: >-
             aarch64-linux-android,
             armv7-linux-androideabi,
             i686-linux-android,
@@ -51,7 +50,7 @@ jobs:
       - name: Установить cargo-ndk
         run: cargo install cargo-ndk --locked
 
-      # ── 4. Настраиваем Android SDK / NDK ─────────────────────────────────────
+      # ── 4. Android SDK / NDK ─────────────────────────────────────────────────
       - name: Настроить Android SDK
         uses: android-actions/setup-android@v3
 
@@ -60,7 +59,7 @@ jobs:
           sdkmanager "ndk;26.3.11579264"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
 
-      # ── 5. Собираем libmimir.so для всех архитектур ───────────────────────────
+      # ── 5. Собираем libmimir.so ───────────────────────────────────────────────
       - name: Собрать libmimir.so (arm64-v8a)
         working-directory: mimir-master
         run: cargo ndk --target aarch64-linux-android --platform 26 -o jniLibs build --release --package mimir
@@ -69,12 +68,12 @@ jobs:
         working-directory: mimir-master
         run: cargo ndk --target armv7-linux-androideabi --platform 26 -o jniLibs build --release --package mimir
 
-      - name: Собрать libmimir.so (x86_64) — для эмулятора
+      - name: Собрать libmimir.so (x86_64)
         working-directory: mimir-master
         run: cargo ndk --target x86_64-linux-android --platform 26 -o jniLibs build --release --package mimir
 
-      # ── 6. Генерируем Kotlin-биндинги ─────────────────────────────────────────
-      - name: Собрать нативную библиотеку для генератора биндингов
+      # ── 6. Kotlin-биндинги ────────────────────────────────────────────────────
+      - name: Собрать нативную библиотеку (host)
         working-directory: mimir-master
         run: cargo build -p mimir --lib
 
@@ -86,22 +85,43 @@ jobs:
             --language kotlin \
             --out-dir kotlin-bindings
 
-      # ── 7. Копируем файлы в Android-проект ───────────────────────────────────
-      - name: Копировать libmimir.so в Android-проект
+      # ── 7. Копируем в Android-проект ──────────────────────────────────────────
+      - name: Копировать libmimir.so
         run: |
           mkdir -p mimir-android/app/src/main/jniLibs
           cp -r mimir-master/jniLibs/* mimir-android/app/src/main/jniLibs/
-          echo "Скопированные библиотеки:"
           find mimir-android/app/src/main/jniLibs -name "*.so" | sort
 
-      - name: Копировать mimir.kt в Android-проект
+      - name: Копировать mimir.kt
         run: |
           mkdir -p mimir-android/app/src/main/java/uniffi/mimir
           cp mimir-master/kotlin-bindings/uniffi/mimir/mimir.kt \
              mimir-android/app/src/main/java/uniffi/mimir/mimir.kt
-          echo "Биндинги скопированы: $(wc -l < mimir-android/app/src/main/java/uniffi/mimir/mimir.kt) строк"
 
-      # ── 8. Кэш Gradle ────────────────────────────────────────────────────────
+      # ── 8. Java ───────────────────────────────────────────────────────────────
+      - name: Настроить Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # ── 9. Gradle wrapper ─────────────────────────────────────────────────────
+      - name: Настроить Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Скачать gradle-wrapper.jar
+        working-directory: mimir-android
+        run: |
+          mkdir -p gradle/wrapper
+          curl -fsSL \
+            "https://raw.githubusercontent.com/gradle/gradle/v9.0.0/gradle/wrapper/gradle-wrapper.jar" \
+            -o gradle/wrapper/gradle-wrapper.jar
+
+      - name: Права на gradlew
+        working-directory: mimir-android
+        run: chmod +x gradlew
+
+      # ── 10. Кэш Gradle ────────────────────────────────────────────────────────
       - name: Кэш Gradle
         uses: actions/cache@v4
         with:
@@ -111,22 +131,12 @@ jobs:
           key: gradle-${{ hashFiles('mimir-android/**/*.gradle*', 'mimir-android/**/libs.versions.toml') }}
           restore-keys: gradle-
 
-      # ── 9. Собираем APK ───────────────────────────────────────────────────────
-      - name: Настроить Java 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Права на gradlew
-        working-directory: mimir-android
-        run: chmod +x gradlew
-
+      # ── 11. Собираем APK ──────────────────────────────────────────────────────
       - name: Собрать debug APK
         working-directory: mimir-android
         run: ./gradlew assembleDebug --no-daemon
 
-      # ── 10. Сохраняем APK как артефакт ───────────────────────────────────────
+      # ── 12. Сохраняем APK ─────────────────────────────────────────────────────
       - name: Сохранить APK
         uses: actions/upload-artifact@v4
         with:
@@ -134,11 +144,7 @@ jobs:
           path: mimir-android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      # ── 11. Информация о сборке ───────────────────────────────────────────────
-      - name: Показать результат
+      - name: Результат
         run: |
           APK=mimir-android/app/build/outputs/apk/debug/app-debug.apk
-          SIZE=$(du -sh $APK | cut -f1)
-          echo "✅ APK собран успешно"
-          echo "📦 Размер: $SIZE"
-          echo "📍 Скачать: Actions → эта сборка → Artifacts → mimir-debug-${{ github.run_number }}"
+          echo "✅ APK собран: $(du -sh $APK | cut -f1)"

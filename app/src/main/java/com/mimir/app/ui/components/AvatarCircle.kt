@@ -10,12 +10,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 
 private val avatarColors = listOf(
     Color(0xFF7C6AF7), Color(0xFF00D9A3), Color(0xFFFF6B6B),
@@ -25,12 +23,13 @@ private val avatarColors = listOf(
 @Composable
 fun AvatarCircle(
     name: String,
-    avatarPath: String? = null,
+    avatarPath: String? = null,   // зарезервировано на будущее
     size: Dp = 44.dp,
 ) {
-    val color = avatarColors[(name.firstOrNull()?.code ?: 0) % avatarColors.size]
+    val color    = avatarColors[(name.firstOrNull()?.code ?: 0) % avatarColors.size]
     val initials = name.trim().split(" ")
-        .take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }
+        .take(2)
+        .mapNotNull { it.firstOrNull()?.uppercaseChar() }
         .joinToString("")
         .ifEmpty { "?" }
 
@@ -41,20 +40,11 @@ fun AvatarCircle(
             .background(color.copy(alpha = 0.25f)),
         contentAlignment = Alignment.Center
     ) {
-        if (avatarPath != null) {
-            AsyncImage(
-                model = avatarPath,
-                contentDescription = name,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        } else {
-            Text(
-                text = initials,
-                fontSize = (size.value * 0.35f).sp,
-                fontWeight = FontWeight.SemiBold,
-                color = color,
-            )
-        }
+        Text(
+            text       = initials,
+            fontSize   = (size.value * 0.36f).sp,
+            fontWeight = FontWeight.SemiBold,
+            color      = color,
+        )
     }
 }

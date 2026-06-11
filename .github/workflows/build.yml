@@ -134,7 +134,7 @@ jobs:
       # ── 11. Собираем APK ──────────────────────────────────────────────────────
       - name: Собрать debug APK
         working-directory: mimir-android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --info 2>&1 | tail -100
 
       # ── 12. Сохраняем APK ─────────────────────────────────────────────────────
       - name: Сохранить APK

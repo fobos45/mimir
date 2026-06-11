@@ -52,7 +52,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.jna)
+    implementation("net.java.dev.jna:jna:5.15.0@aar")
     kapt(libs.androidx.room.compiler)
     debugImplementation(libs.androidx.ui.tooling)
 }

@@ -43,7 +43,6 @@ class ConnectionService : Service() {
             ),
             trackers = listOf("de1.mimir.im:7744"),
             filesDir = filesDir.absolutePath,
-            db       = db,
         )
     }
 

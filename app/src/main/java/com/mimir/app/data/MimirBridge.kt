@@ -6,16 +6,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import uniffi.mimir.*
 
-/**
- * Singleton обёртка над PeerNode из libmimir.so.
- * Преобразует callback-события Rust в Kotlin Flow.
- */
 object MimirBridge {
 
     private const val TAG = "MimirBridge"
     private var peerNode: PeerNode? = null
-
-    // ── Events ────────────────────────────────────────────────────────────────
 
     sealed class Event {
         data class OnlineChanged(val online: Boolean) : Event()
@@ -26,6 +20,9 @@ object MimirBridge {
             val sendTime: Long, val msgType: Int, val data: ByteArray
         ) : Event()
         data class MessageDelivered(val pubkeyHex: String, val guid: Long) : Event()
+        data class FileReceived(
+            val pubkeyHex: String, val guid: Long, val metaJson: String, val filePath: String
+        ) : Event()
         data class IncomingCall(val pubkeyHex: String) : Event()
         data class CallStatusChanged(val status: CallStatus, val pubkeyHex: String?) : Event()
         data class CallPacket(val pubkeyHex: String, val data: ByteArray) : Event()
@@ -38,19 +35,21 @@ object MimirBridge {
     private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 64)
     val events = _events.asSharedFlow()
 
-    // ── Init ──────────────────────────────────────────────────────────────────
-
     fun start(
         context: Context,
         seedHex: String,
         yggPeers: List<String>,
         trackers: List<String>,
         filesDir: String,
-        db: AppDatabase,
     ) {
         if (peerNode != null) return
 
-        val seed = seedHex.hexToBytes()
+        val signingKey = seedHex.hexToBytes()
+
+        // Сохранённый ephemeral ключ (для стабильного Yggdrasil-адреса)
+        val prefs = context.getSharedPreferences("mimir_prefs", Context.MODE_PRIVATE)
+        val savedEphemeral = prefs.getString("ephemeral_key_hex", null)?.hexToBytes()
+
         val listener = object : PeerEventListener {
             override fun onConnectivityChanged(isOnline: Boolean) {
                 emit(Event.OnlineChanged(isOnline))
@@ -70,6 +69,12 @@ object MimirBridge {
             override fun onMessageDelivered(pubkey: ByteArray, guid: Long) {
                 emit(Event.MessageDelivered(pubkey.toHex(), guid))
             }
+            override fun onFileReceived(
+                pubkey: ByteArray, guid: Long, replyTo: Long, sendTime: Long,
+                editTime: Long, msgType: Int, metaJson: String, filePath: String
+            ) {
+                emit(Event.FileReceived(pubkey.toHex(), guid, metaJson, filePath))
+            }
             override fun onIncomingCall(pubkey: ByteArray) {
                 emit(Event.IncomingCall(pubkey.toHex()))
             }
@@ -79,11 +84,11 @@ object MimirBridge {
             override fun onCallPacket(pubkey: ByteArray, data: ByteArray) {
                 emit(Event.CallPacket(pubkey.toHex(), data))
             }
-            override fun onFileSendProgress(pubkey: ByteArray, guid: Long, bytesSent: Long, totalBytes: Long) {
-                emit(Event.FileSendProgress(pubkey.toHex(), guid, bytesSent, totalBytes))
-            }
             override fun onFileReceiveProgress(pubkey: ByteArray, guid: Long, bytesReceived: Long, totalBytes: Long) {
                 emit(Event.FileReceiveProgress(pubkey.toHex(), guid, bytesReceived, totalBytes))
+            }
+            override fun onFileSendProgress(pubkey: ByteArray, guid: Long, bytesSent: Long, totalBytes: Long) {
+                emit(Event.FileSendProgress(pubkey.toHex(), guid, bytesSent, totalBytes))
             }
             override fun onContactRequest(pubkey: ByteArray, message: String, nickname: String, info: String, avatar: ByteArray?) {
                 emit(Event.ContactRequest(pubkey.toHex(), message, nickname))
@@ -91,7 +96,7 @@ object MimirBridge {
             override fun onContactResponse(pubkey: ByteArray, accepted: Boolean) {
                 emit(Event.ContactResponse(pubkey.toHex(), accepted))
             }
-            override fun onTrackerAnnounce(ok: Boolean, ttl: Long) {
+            override fun onTrackerAnnounce(ok: Boolean, ttl: Int) {
                 Log.d(TAG, "Tracker announce ok=$ok ttl=$ttl")
             }
         }
@@ -105,8 +110,23 @@ object MimirBridge {
         }
 
         try {
-            peerNode = PeerNode(seed, yggPeers, 7878u, trackers, listener, provider)
-            Log.i(TAG, "PeerNode started, pubkey=${peerNode!!.publicKey().toHex().take(16)}…")
+            val node = PeerNode(
+                signingKey    = signingKey,
+                ephemeralKey  = savedEphemeral,
+                yggPeers      = yggPeers,
+                peerPort      = 7878u,
+                trackers      = trackers,
+                eventListener = listener,
+                infoProvider  = provider,
+            )
+            // Сохраняем ephemeral ключ для следующего запуска
+            prefs.edit()
+                .putString("ephemeral_key_hex", node.ephemeralKey().toHex())
+                .apply()
+
+            node.announceToTrackers()
+            peerNode = node
+            Log.i(TAG, "PeerNode started, pubkey=${node.publicKey().toHex().take(16)}…")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start PeerNode", e)
         }
@@ -114,42 +134,48 @@ object MimirBridge {
 
     fun stop() { peerNode?.stop(); peerNode = null }
 
-    // ── API ───────────────────────────────────────────────────────────────────
-
     fun publicKey(): ByteArray? = peerNode?.publicKey()
 
     fun connectToPeer(pubkeyHex: String) =
-        peerNode?.connectToPeer(pubkeyHex.hexToBytes())
+        runCatching { peerNode?.connectToPeer(pubkeyHex.hexToBytes()) }
 
     fun sendMessage(pubkeyHex: String, guid: Long, msgType: Int, data: ByteArray) =
-        peerNode?.sendMessage(pubkeyHex.hexToBytes(), guid, 0L, System.currentTimeMillis(), 0L, msgType, data)
+        runCatching {
+            peerNode?.sendMessage(pubkeyHex.hexToBytes(), guid, 0L,
+                System.currentTimeMillis(), 0L, msgType, data)
+        }
 
     fun sendContactRequest(pubkeyHex: String, message: String) =
-        peerNode?.sendContactRequest(pubkeyHex.hexToBytes(), message)
+        runCatching { peerNode?.sendContactRequest(pubkeyHex.hexToBytes(), message) }
 
     fun sendContactResponse(pubkeyHex: String, accepted: Boolean) =
-        peerNode?.sendContactResponse(pubkeyHex.hexToBytes(), accepted)
+        runCatching { peerNode?.sendContactResponse(pubkeyHex.hexToBytes(), accepted) }
 
-    fun startCall(pubkeyHex: String) = peerNode?.startCall(pubkeyHex.hexToBytes())
-    fun answerCall(pubkeyHex: String, accept: Boolean) = peerNode?.answerCall(pubkeyHex.hexToBytes(), accept)
-    fun hangupCall(pubkeyHex: String) = peerNode?.hangupCall(pubkeyHex.hexToBytes())
-    fun sendCallPacket(pubkeyHex: String, data: ByteArray) = peerNode?.sendCallPacket(pubkeyHex.hexToBytes(), data)
+    fun startCall(pubkeyHex: String) =
+        runCatching { peerNode?.startCall(pubkeyHex.hexToBytes()) }
+
+    fun answerCall(pubkeyHex: String, accept: Boolean) =
+        runCatching { peerNode?.answerCall(pubkeyHex.hexToBytes(), accept) }
+
+    fun hangupCall(pubkeyHex: String) =
+        runCatching { peerNode?.hangupCall(pubkeyHex.hexToBytes()) }
+
+    fun sendCallPacket(pubkeyHex: String, data: ByteArray) =
+        runCatching { peerNode?.sendCallPacket(pubkeyHex.hexToBytes(), data) }
 
     fun requestFile(pubkeyHex: String, guid: Long, name: String, hash: String, size: Long) =
-        peerNode?.requestFile(pubkeyHex.hexToBytes(), guid, name, hash, size)
+        runCatching { peerNode?.requestFile(pubkeyHex.hexToBytes(), guid, name, hash, size) }
 
     fun setNetworkOnline(online: Boolean) = peerNode?.setNetworkOnline(online)
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun emit(event: Event) { _events.tryEmit(event) }
 
     fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
     fun String.hexToBytes(): ByteArray {
-        check(length % 2 == 0) { "Odd hex length" }
-        return ByteArray(length / 2) { i ->
-            substring(i * 2, i * 2 + 2).toInt(16).toByte()
+        val s = if (length % 2 != 0) "0$this" else this
+        return ByteArray(s.length / 2) { i ->
+            s.substring(i * 2, i * 2 + 2).toInt(16).toByte()
         }
     }
 }

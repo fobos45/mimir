@@ -13,11 +13,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mimir.app.data.Contact
 import com.mimir.app.ui.components.AvatarCircle
+import com.mimir.app.ui.components.MyKeyDialog
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -29,13 +29,20 @@ fun ContactListScreen(
     onAddContact: () -> Unit,
     myPubkeyHex: String,
 ) {
+    var showMyKey by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Mimir", style = MaterialTheme.typography.titleLarge) },
                 actions = {
-                    IconButton(onClick = { /* Настройки */ }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Настройки")
+                    // Кнопка "Мой ключ"
+                    IconButton(onClick = { showMyKey = true }) {
+                        Icon(
+                            Icons.Default.Key,
+                            contentDescription = "Мой ключ",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -54,7 +61,11 @@ fun ContactListScreen(
         }
     ) { padding ->
         if (contacts.isEmpty()) {
-            EmptyContactsPlaceholder(modifier = Modifier.padding(padding))
+            EmptyContactsPlaceholder(
+                myPubkeyHex = myPubkeyHex,
+                onShowKey = { showMyKey = true },
+                modifier = Modifier.padding(padding)
+            )
         } else {
             LazyColumn(
                 contentPadding = PaddingValues(
@@ -67,6 +78,13 @@ fun ContactListScreen(
                 }
             }
         }
+    }
+
+    if (showMyKey && myPubkeyHex.isNotEmpty()) {
+        MyKeyDialog(
+            pubkeyHex = myPubkeyHex,
+            onDismiss = { showMyKey = false }
+        )
     }
 }
 
@@ -82,14 +100,8 @@ private fun ContactRow(contact: Contact, onClick: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Аватар
             Box {
-                AvatarCircle(
-                    name = contact.nickname,
-                    avatarPath = contact.avatarPath,
-                    size = 50.dp
-                )
-                // Онлайн-индикатор
+                AvatarCircle(name = contact.nickname, avatarPath = contact.avatarPath, size = 50.dp)
                 if (contact.isOnline) {
                     Box(
                         modifier = Modifier
@@ -111,7 +123,6 @@ private fun ContactRow(contact: Contact, onClick: () -> Unit) {
 
             Spacer(Modifier.width(14.dp))
 
-            // Имя + превью
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = contact.nickname,
@@ -119,18 +130,18 @@ private fun ContactRow(contact: Contact, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (!contact.isOnline && contact.lastSeen > 0) {
-                    Text(
-                        text = "был(а) ${formatLastSeen(contact.lastSeen)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    text = if (contact.isOnline) "онлайн"
+                           else if (contact.lastSeen > 0) "был(а) ${formatLastSeen(contact.lastSeen)}"
+                           else "офлайн",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (contact.isOnline) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             Spacer(Modifier.width(8.dp))
 
-            // Счётчик непрочитанных
             if (contact.unreadCount > 0) {
                 Badge(containerColor = MaterialTheme.colorScheme.primary) {
                     Text(
@@ -145,7 +156,11 @@ private fun ContactRow(contact: Contact, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmptyContactsPlaceholder(modifier: Modifier = Modifier) {
+private fun EmptyContactsPlaceholder(
+    myPubkeyHex: String,
+    onShowKey: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -158,11 +173,26 @@ private fun EmptyContactsPlaceholder(modifier: Modifier = Modifier) {
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
         )
         Spacer(Modifier.height(16.dp))
-        Text("Нет контактов", style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "Нет контактов",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(8.dp))
-        Text("Нажмите + чтобы добавить первый", style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        Text(
+            "Нажмите + чтобы добавить первый",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
+        if (myPubkeyHex.isNotEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            OutlinedButton(onClick = onShowKey) {
+                Icon(Icons.Default.Key, contentDescription = null,
+                    modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Показать мой ключ")
+            }
+        }
     }
 }
 

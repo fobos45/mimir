@@ -154,9 +154,12 @@ fun MimirApp(
         }
 
         composable("settings") {
+            val useTracker by settingsVm.useTracker.collectAsStateWithLifecycle()
             SettingsScreen(
-                onBack       = { navController.popBackStack() },
-                onOpenPeers  = { navController.navigate("peers") },
+                useTracker         = useTracker,
+                onUseTrackerChange = { settingsVm.setUseTracker(it) },
+                onBack             = { navController.popBackStack() },
+                onOpenPeers        = { navController.navigate("peers") },
             )
         }
 

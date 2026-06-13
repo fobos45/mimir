@@ -41,14 +41,21 @@ object MimirBridge {
         yggPeers: List<String>,
         trackers: List<String>,
         filesDir: String,
+        useTracker: Boolean = true,
     ) {
         if (peerNode != null) return
 
         val signingKey = seedHex.hexToBytes()
 
-        // Сохранённый ephemeral ключ (для стабильного Yggdrasil-адреса)
         val prefs = context.getSharedPreferences("mimir_prefs", Context.MODE_PRIVATE)
-        val savedEphemeral = prefs.getString("ephemeral_key_hex", null)?.hexToBytes()
+
+        // В режиме прямого подключения ephemeralKey = null:
+        // Yggdrasil использует signingKey как routing key → постоянный адрес
+        val ephemeralKey = if (useTracker) {
+            prefs.getString("ephemeral_key_hex", null)?.hexToBytes()
+        } else {
+            null
+        }
 
         val listener = object : PeerEventListener {
             override fun onConnectivityChanged(isOnline: Boolean) {
@@ -112,17 +119,19 @@ object MimirBridge {
         try {
             val node = PeerNode(
                 signingKey    = signingKey,
-                ephemeralKey  = savedEphemeral,
+                ephemeralKey  = ephemeralKey,
                 yggPeers      = yggPeers,
                 peerPort      = 7878u,
-                trackers      = trackers,
+                trackers      = if (useTracker) trackers else emptyList(),
                 eventListener = listener,
                 infoProvider  = provider,
             )
-            // Сохраняем ephemeral ключ для следующего запуска
-            prefs.edit()
-                .putString("ephemeral_key_hex", node.ephemeralKey().toHex())
-                .apply()
+            // Сохраняем ephemeral ключ только в режиме с трекером
+            if (useTracker) {
+                prefs.edit()
+                    .putString("ephemeral_key_hex", node.ephemeralKey().toHex())
+                    .apply()
+            }
 
             node.announceToTrackers()
             peerNode = node

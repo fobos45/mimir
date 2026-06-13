@@ -9,11 +9,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class YggPeer(
-    val id: String,          // уникальный id
-    val address: String,     // tcp://de1.mimir.im:7743
-    val label: String,       // человекочитаемое имя
+    val id: String,
+    val address: String,
+    val label: String,
     val enabled: Boolean,
-    val isDefault: Boolean = false,  // встроенный пир нельзя удалить
+    val isDefault: Boolean = false,
 )
 
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
@@ -23,14 +23,22 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val _peers = MutableStateFlow<List<YggPeer>>(emptyList())
     val peers: StateFlow<List<YggPeer>> = _peers
 
+    // true = использовать трекер (ephemeral ключ), false = прямое подключение (постоянный ключ)
+    private val _useTracker = MutableStateFlow(prefs.getBoolean("use_tracker", true))
+    val useTracker: StateFlow<Boolean> = _useTracker
+
     init {
         loadPeers()
+    }
+
+    fun setUseTracker(enabled: Boolean) {
+        _useTracker.value = enabled
+        prefs.edit().putBoolean("use_tracker", enabled).apply()
     }
 
     private fun loadPeers() {
         val json = prefs.getString("ygg_peers", null)
         if (json == null) {
-            // Первый запуск — загружаем дефолтные пиры
             _peers.value = defaultPeers()
             savePeers()
         } else {
@@ -56,9 +64,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun togglePeer(id: String, enabled: Boolean) {
-        _peers.update { list ->
-            list.map { if (it.id == id) it.copy(enabled = enabled) else it }
-        }
+        _peers.update { list -> list.map { if (it.id == id) it.copy(enabled = enabled) else it } }
         savePeers()
     }
 

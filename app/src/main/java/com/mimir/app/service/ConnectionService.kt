@@ -39,15 +39,18 @@ class ConnectionService : Service() {
             com.mimir.app.data.MimirBridge.stop()
             return
         }
+        val useTracker = getSharedPreferences("mimir_settings", MODE_PRIVATE)
+            .getBoolean("use_tracker", true)
         MimirBridge.start(
-            context  = applicationContext,
-            seedHex  = getOrCreateSeed(),
-            yggPeers = peers,
-            trackers = listOf(
+            context    = applicationContext,
+            seedHex    = getOrCreateSeed(),
+            yggPeers   = peers,
+            trackers   = listOf(
                 "0000118d965a512ce8a37896957ef15b4108f89a9954ae9365448c6bf049c48d:69",
                 "000044c35636ae819b55ef3f4d5008dd0125fb70baa5fc0f8a94a3671ef8c649:69",
             ),
-            filesDir = filesDir.absolutePath,
+            filesDir   = filesDir.absolutePath,
+            useTracker = useTracker,
         )
     }
 

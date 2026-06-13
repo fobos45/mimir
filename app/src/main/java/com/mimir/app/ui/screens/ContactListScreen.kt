@@ -1,5 +1,6 @@
 package com.mimir.app.ui.screens
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -227,20 +228,19 @@ private fun formatLastSeen(ts: Long): String {
 @Composable
 private fun NetworkIndicator(status: NetworkStatus) {
     val color = when (status) {
-        NetworkStatus.ONLINE     -> Color(0xFF00D9A3)   // зелёный
-        NetworkStatus.CONNECTING -> Color(0xFFFFB347)   // жёлтый
-        NetworkStatus.OFFLINE    -> Color(0xFFFF6B6B)   // красный
+        NetworkStatus.ONLINE     -> Color(0xFF00D9A3)
+        NetworkStatus.CONNECTING -> Color(0xFFFFB347)
+        NetworkStatus.OFFLINE    -> Color(0xFFFF6B6B)
     }
 
-    // Пульсация для состояния "подключение"
     val alpha by if (status == NetworkStatus.CONNECTING) {
-        val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pulse")
+        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
         infiniteTransition.animateFloat(
-            initialValue = 0.3f,
-            targetValue  = 1f,
-            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                animation  = androidx.compose.animation.core.tween(800),
-                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+            initialValue  = 0.3f,
+            targetValue   = 1f,
+            animationSpec = infiniteRepeatable(
+                animation  = tween(800),
+                repeatMode = RepeatMode.Reverse,
             ),
             label = "alpha"
         )

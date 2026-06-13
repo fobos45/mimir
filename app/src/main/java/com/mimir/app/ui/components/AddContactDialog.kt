@@ -5,16 +5,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun AddContactDialog(
+    existingKeys: Set<String> = emptySet(),
     onDismiss: () -> Unit,
     onAdd: (pubkeyHex: String, nickname: String) -> Unit,
 ) {
     var pubkey   by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
-    val isValid  = pubkey.length == 64 && pubkey.all { it.isLetterOrDigit() } && nickname.isNotBlank()
+
+    val isDuplicate = pubkey.length == 64 && existingKeys.contains(pubkey.lowercase())
+    val isValidKey  = pubkey.length == 64 && pubkey.all { it.isLetterOrDigit() } && !isDuplicate
+    val isValid     = isValidKey && nickname.isNotBlank()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -23,22 +28,33 @@ fun AddContactDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
-                    value = nickname,
+                    value         = nickname,
                     onValueChange = { nickname = it },
-                    label = { Text("Имя") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    label         = { Text("Имя контакта") },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    value = pubkey,
-                    onValueChange = { pubkey = it.trim() },
-                    label = { Text("Публичный ключ (64 символа)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    isError = pubkey.isNotEmpty() && pubkey.length != 64,
+                    value         = pubkey,
+                    onValueChange = { pubkey = it.trim().lowercase() },
+                    label         = { Text("Публичный ключ (64 символа)") },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth(),
+                    isError       = pubkey.isNotEmpty() && (pubkey.length != 64 || isDuplicate),
                     supportingText = {
-                        if (pubkey.isNotEmpty() && pubkey.length != 64)
-                            Text("Ключ должен быть 64 символа")
+                        when {
+                            isDuplicate              -> Text("Этот контакт уже добавлен",
+                                color = MaterialTheme.colorScheme.error)
+                            pubkey.isNotEmpty() && pubkey.length != 64 ->
+                                Text("Ключ должен содержать ровно 64 символа")
+                            pubkey.isNotEmpty() && !pubkey.all { it.isLetterOrDigit() } ->
+                                Text("Ключ содержит недопустимые символы")
+                            else -> Text("${pubkey.length}/64",
+                                color = if (pubkey.length == 64)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 )
             }

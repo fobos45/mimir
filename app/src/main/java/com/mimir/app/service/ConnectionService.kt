@@ -33,10 +33,16 @@ class ConnectionService : Service() {
     }
 
     private fun startMimir() {
+        val peers = getEnabledPeers()
+        if (peers.isEmpty()) {
+            // Нет активных пиров — явно сигнализируем офлайн и не запускаем PeerNode
+            com.mimir.app.data.MimirBridge.stop()
+            return
+        }
         MimirBridge.start(
             context  = applicationContext,
             seedHex  = getOrCreateSeed(),
-            yggPeers = getEnabledPeers(),
+            yggPeers = peers,
             trackers = listOf(
                 "0000118d965a512ce8a37896957ef15b4108f89a9954ae9365448c6bf049c48d:69",
                 "000044c35636ae819b55ef3f4d5008dd0125fb70baa5fc0f8a94a3671ef8c649:69",
@@ -205,5 +211,9 @@ class ConnectionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
     override fun onBind(intent: Intent?): IBinder? = null
-    override fun onDestroy() { scope.cancel(); MimirBridge.stop(); super.onDestroy() }
+    override fun onDestroy() {
+        scope.cancel()
+        MimirBridge.stop()
+        super.onDestroy()
+    }
 }

@@ -56,8 +56,9 @@ class ContactsViewModel(app: Application) : AndroidViewModel(app) {
                     is MimirBridge.Event.OnlineChanged -> {
                         _connectionState.update { state ->
                             state.copy(
-                                status = if (event.online) NetworkStatus.ONLINE
-                                         else NetworkStatus.OFFLINE
+                                status   = if (event.online) NetworkStatus.ONLINE
+                                           else NetworkStatus.OFFLINE,
+                                peerName = if (event.online) state.peerName else "",
                             )
                         }
                     }

@@ -132,7 +132,12 @@ object MimirBridge {
         }
     }
 
-    fun stop() { peerNode?.stop(); peerNode = null }
+    fun stop() {
+        peerNode?.stop()
+        peerNode = null
+        // Сигнализируем что ушли офлайн
+        _events.tryEmit(Event.OnlineChanged(false))
+    }
 
     fun publicKey(): ByteArray? = peerNode?.publicKey()
 

@@ -161,12 +161,20 @@ fun MimirApp(
         }
 
         composable("peers") {
+            val ctx = LocalContext.current
             PeersScreen(
-                peers    = peers,
-                onBack   = { navController.popBackStack() },
-                onToggle = settingsVm::togglePeer,
-                onAdd    = settingsVm::addPeer,
-                onRemove = settingsVm::removePeer,
+                peers            = peers,
+                onBack           = { navController.popBackStack() },
+                onToggle         = settingsVm::togglePeer,
+                onAdd            = settingsVm::addPeer,
+                onRemove         = settingsVm::removePeer,
+                onRestartService = {
+                    // Останавливаем и перезапускаем сервис с новыми пирами
+                    ctx.stopService(android.content.Intent(ctx, ConnectionService::class.java))
+                    ContextCompat.startForegroundService(
+                        ctx, android.content.Intent(ctx, ConnectionService::class.java)
+                    )
+                },
             )
         }
     }

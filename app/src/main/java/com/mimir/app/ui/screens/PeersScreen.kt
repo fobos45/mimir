@@ -22,6 +22,7 @@ fun PeersScreen(
     onToggle: (id: String, enabled: Boolean) -> Unit,
     onAdd: (address: String, label: String) -> Unit,
     onRemove: (id: String) -> Unit,
+    onRestartService: () -> Unit = {},
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -106,12 +107,31 @@ fun PeersScreen(
 
             item {
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text  = "Изменения вступят в силу при следующем запуске приложения",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text  = "Изменения вступят в силу после перезапуска подключения",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick  = { onRestartService(); onBack() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null,
+                                modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Применить и переподключиться")
+                        }
+                    }
+                }
             }
         }
     }

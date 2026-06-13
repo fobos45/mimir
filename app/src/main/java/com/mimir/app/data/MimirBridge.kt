@@ -13,7 +13,7 @@ object MimirBridge {
 
     sealed class Event {
         data class OnlineChanged(val online: Boolean) : Event()
-        data class PeerConnected(val pubkeyHex: String) : Event()
+        data class PeerConnected(val pubkeyHex: String, val address: String) : Event()
         data class PeerDisconnected(val pubkeyHex: String, val dead: Boolean) : Event()
         data class MessageReceived(
             val pubkeyHex: String, val guid: Long, val replyTo: Long,
@@ -55,7 +55,7 @@ object MimirBridge {
                 emit(Event.OnlineChanged(isOnline))
             }
             override fun onPeerConnected(pubkey: ByteArray, address: String) {
-                emit(Event.PeerConnected(pubkey.toHex()))
+                emit(Event.PeerConnected(pubkey.toHex(), address))
             }
             override fun onPeerDisconnected(pubkey: ByteArray, address: String, deadPeer: Boolean) {
                 emit(Event.PeerDisconnected(pubkey.toHex(), deadPeer))

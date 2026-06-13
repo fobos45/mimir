@@ -18,8 +18,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.mimir.app.service.ConnectionService
 import com.mimir.app.ui.components.AddContactDialog
-import com.mimir.app.ui.screens.*
-import com.mimir.app.ui.theme.MimirTheme
+import com.mimir.app.ui.screens.*import com.mimir.app.ui.theme.MimirTheme
 import uniffi.mimir.CallStatus
 
 class MainActivity : ComponentActivity() {
@@ -95,10 +94,11 @@ fun MimirApp(
     contactsVm: ContactsViewModel,
     initialIntent: Intent?,
 ) {
-    val contacts     by contactsVm.contacts.collectAsStateWithLifecycle()
-    val callStatus   by callVm.callStatus.collectAsStateWithLifecycle()
-    val callPubkey   by callVm.callPubkey.collectAsStateWithLifecycle()
-    val callDuration by callVm.callDuration.collectAsStateWithLifecycle()
+    val contacts         by contactsVm.contacts.collectAsStateWithLifecycle()
+    val callStatus       by callVm.callStatus.collectAsStateWithLifecycle()
+    val callPubkey       by callVm.callPubkey.collectAsStateWithLifecycle()
+    val callDuration     by callVm.callDuration.collectAsStateWithLifecycle()
+    val connectionState  by contactsVm.connectionState.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
 
     // Переход при первом запуске из intent (приложение было закрыто)
@@ -117,10 +117,11 @@ fun MimirApp(
             val myKey by contactsVm.myPubkeyHex.collectAsStateWithLifecycle()
 
             ContactListScreen(
-                contacts     = contacts,
-                onOpenChat   = { navController.navigate("chat/$it") },
-                onAddContact = { showAddDialog = true },
-                myPubkeyHex  = myKey,
+                contacts        = contacts,
+                onOpenChat      = { navController.navigate("chat/$it") },
+                onAddContact    = { showAddDialog = true },
+                myPubkeyHex     = myKey,
+                connectionState = connectionState,
             )
         }
 

@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mimir.app.data.Contact
 import com.mimir.app.ui.components.AvatarCircle
 import com.mimir.app.ui.components.MyKeyDialog
@@ -28,13 +29,30 @@ fun ContactListScreen(
     onOpenChat: (String) -> Unit,
     onAddContact: () -> Unit,
     myPubkeyHex: String,
+    connectionState: ConnectionState = ConnectionState(),
 ) {
     var showMyKey by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mimir", style = MaterialTheme.typography.titleLarge) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Индикатор статуса сети
+                        NetworkIndicator(connectionState.status)
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text("Mimir", style = MaterialTheme.typography.titleLarge)
+                            if (connectionState.peerName.isNotEmpty()) {
+                                Text(
+                                    text  = connectionState.peerName,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                },
                 actions = {
                     // Кнопка "Мой ключ"
                     IconButton(onClick = { showMyKey = true }) {
@@ -204,4 +222,36 @@ private fun formatLastSeen(ts: Long): String {
         diff < 86_400_000 -> "${diff / 3_600_000} ч назад"
         else -> SimpleDateFormat("d MMM", Locale("ru")).format(Date(ts))
     }
+}
+
+@Composable
+private fun NetworkIndicator(status: NetworkStatus) {
+    val color = when (status) {
+        NetworkStatus.ONLINE     -> Color(0xFF00D9A3)   // зелёный
+        NetworkStatus.CONNECTING -> Color(0xFFFFB347)   // жёлтый
+        NetworkStatus.OFFLINE    -> Color(0xFFFF6B6B)   // красный
+    }
+
+    // Пульсация для состояния "подключение"
+    val alpha by if (status == NetworkStatus.CONNECTING) {
+        val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pulse")
+        infiniteTransition.animateFloat(
+            initialValue = 0.3f,
+            targetValue  = 1f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                animation  = androidx.compose.animation.core.tween(800),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+            ),
+            label = "alpha"
+        )
+    } else {
+        remember { mutableFloatStateOf(1f) }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(10.dp)
+            .clip(CircleShape)
+            .background(color.copy(alpha = alpha))
+    )
 }

@@ -31,6 +31,7 @@ fun ContactListScreen(
     onAddContact: () -> Unit,
     myPubkeyHex: String,
     connectionState: ConnectionState = ConnectionState(),
+    onOpenSettings: () -> Unit = {},
 ) {
     var showMyKey by remember { mutableStateOf(false) }
 
@@ -61,6 +62,14 @@ fun ContactListScreen(
                             Icons.Default.Key,
                             contentDescription = "Мой ключ",
                             tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    // Кнопка "Настройки"
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Настройки",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },

@@ -18,15 +18,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.mimir.app.service.ConnectionService
 import com.mimir.app.ui.components.AddContactDialog
-import com.mimir.app.ui.screens.*import com.mimir.app.ui.theme.MimirTheme
+import com.mimir.app.ui.screens.*
+import com.mimir.app.ui.theme.MimirTheme
 import uniffi.mimir.CallStatus
 
 class MainActivity : ComponentActivity() {
 
-    private val callVm: CallViewModel by viewModels()
+    private val callVm:     CallViewModel     by viewModels()
     private val contactsVm: ContactsViewModel by viewModels()
+    private val settingsVm: SettingsViewModel by viewModels()
 
-    // Храним ссылку на navController чтобы использовать в onNewIntent
     private var navController: NavHostController? = null
 
     private val permissionLauncher = registerForActivityResult(
@@ -42,31 +43,24 @@ class MainActivity : ComponentActivity() {
         setContent {
             MimirTheme {
                 val nav = rememberNavController()
-                // Сохраняем ссылку для onNewIntent
                 LaunchedEffect(nav) { navController = nav }
-
                 MimirApp(
                     navController = nav,
                     callVm        = callVm,
                     contactsVm    = contactsVm,
+                    settingsVm    = settingsVm,
                     initialIntent = intent,
                 )
             }
         }
     }
 
-    // Вызывается когда приложение уже открыто и пришёл новый Intent
-    // (например тап на уведомление при открытом приложении)
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         val nav = navController ?: return
         intent.getStringExtra("open_chat")?.let { pubkey ->
-            nav.navigate("chat/$pubkey") {
-                launchSingleTop = true
-                // Не добавляем дубликат если уже на этом экране
-                restoreState = false
-            }
+            nav.navigate("chat/$pubkey") { launchSingleTop = true }
         }
         intent.getStringExtra("incoming_call")?.let {
             nav.navigate("call") { launchSingleTop = true }
@@ -92,16 +86,17 @@ fun MimirApp(
     navController: NavHostController,
     callVm: CallViewModel,
     contactsVm: ContactsViewModel,
+    settingsVm: SettingsViewModel,
     initialIntent: Intent?,
 ) {
-    val contacts         by contactsVm.contacts.collectAsStateWithLifecycle()
-    val callStatus       by callVm.callStatus.collectAsStateWithLifecycle()
-    val callPubkey       by callVm.callPubkey.collectAsStateWithLifecycle()
-    val callDuration     by callVm.callDuration.collectAsStateWithLifecycle()
-    val connectionState  by contactsVm.connectionState.collectAsStateWithLifecycle()
-    var showAddDialog by remember { mutableStateOf(false) }
+    val contacts        by contactsVm.contacts.collectAsStateWithLifecycle()
+    val callStatus      by callVm.callStatus.collectAsStateWithLifecycle()
+    val callPubkey      by callVm.callPubkey.collectAsStateWithLifecycle()
+    val callDuration    by callVm.callDuration.collectAsStateWithLifecycle()
+    val connectionState by contactsVm.connectionState.collectAsStateWithLifecycle()
+    val peers           by settingsVm.peers.collectAsStateWithLifecycle()
+    var showAddDialog   by remember { mutableStateOf(false) }
 
-    // Переход при первом запуске из intent (приложение было закрыто)
     LaunchedEffect(initialIntent) {
         initialIntent?.getStringExtra("open_chat")?.let {
             navController.navigate("chat/$it") { launchSingleTop = true }
@@ -115,13 +110,13 @@ fun MimirApp(
 
         composable("contacts") {
             val myKey by contactsVm.myPubkeyHex.collectAsStateWithLifecycle()
-
             ContactListScreen(
                 contacts        = contacts,
                 onOpenChat      = { navController.navigate("chat/$it") },
                 onAddContact    = { showAddDialog = true },
                 myPubkeyHex     = myKey,
                 connectionState = connectionState,
+                onOpenSettings  = { navController.navigate("settings") },
             )
         }
 
@@ -133,7 +128,6 @@ fun MimirApp(
             }
             val msgs    by vm.messages.collectAsStateWithLifecycle()
             val contact by vm.contact.collectAsStateWithLifecycle()
-
             ChatScreen(
                 contact     = contact,
                 messages    = msgs,
@@ -158,9 +152,25 @@ fun MimirApp(
                 onHangup  = { callVm.hangup(); navController.popBackStack() },
             )
         }
+
+        composable("settings") {
+            SettingsScreen(
+                onBack       = { navController.popBackStack() },
+                onOpenPeers  = { navController.navigate("peers") },
+            )
+        }
+
+        composable("peers") {
+            PeersScreen(
+                peers    = peers,
+                onBack   = { navController.popBackStack() },
+                onToggle = settingsVm::togglePeer,
+                onAdd    = settingsVm::addPeer,
+                onRemove = settingsVm::removePeer,
+            )
+        }
     }
 
-    // Диалог добавления контакта
     if (showAddDialog) {
         AddContactDialog(
             existingKeys = contacts.map { it.pubkeyHex }.toSet(),
@@ -169,7 +179,6 @@ fun MimirApp(
         )
     }
 
-    // Автоматический переход к экрану звонка при входящем
     LaunchedEffect(callStatus) {
         if (callStatus == CallStatus.RECEIVING) {
             navController.navigate("call") { launchSingleTop = true }

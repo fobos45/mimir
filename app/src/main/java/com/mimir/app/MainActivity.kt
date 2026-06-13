@@ -16,7 +16,6 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.mimir.app.data.MimirBridge
 import com.mimir.app.service.ConnectionService
 import com.mimir.app.ui.components.AddContactDialog
 import com.mimir.app.ui.screens.*
@@ -115,9 +114,7 @@ fun MimirApp(
     NavHost(navController = navController, startDestination = "contacts") {
 
         composable("contacts") {
-            val myKey = MimirBridge.publicKey()?.let {
-                with(MimirBridge) { it.toHex() }
-            } ?: ""
+            val myKey by contactsVm.myPubkeyHex.collectAsStateWithLifecycle()
 
             ContactListScreen(
                 contacts     = contacts,

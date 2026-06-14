@@ -109,14 +109,18 @@ fun MimirApp(
     NavHost(navController = navController, startDestination = "contacts") {
 
         composable("contacts") {
-            val myKey by contactsVm.myPubkeyHex.collectAsStateWithLifecycle()
+            val myKey         by contactsVm.myPubkeyHex.collectAsStateWithLifecycle()
+            val myEphemeral   by contactsVm.myEphemeralKeyHex.collectAsStateWithLifecycle()
+            val useTracker    by settingsVm.useTracker.collectAsStateWithLifecycle()
             ContactListScreen(
-                contacts        = contacts,
-                onOpenChat      = { navController.navigate("chat/$it") },
-                onAddContact    = { showAddDialog = true },
-                myPubkeyHex     = myKey,
-                connectionState = connectionState,
-                onOpenSettings  = { navController.navigate("settings") },
+                contacts           = contacts,
+                onOpenChat         = { navController.navigate("chat/$it") },
+                onAddContact       = { showAddDialog = true },
+                myPubkeyHex        = myKey,
+                myEphemeralKeyHex  = myEphemeral,
+                directMode         = !useTracker,
+                connectionState    = connectionState,
+                onOpenSettings     = { navController.navigate("settings") },
             )
         }
 
@@ -183,10 +187,12 @@ fun MimirApp(
     }
 
     if (showAddDialog) {
+        val useTracker by settingsVm.useTracker.collectAsStateWithLifecycle()
         AddContactDialog(
             existingKeys = contacts.map { it.pubkeyHex }.toSet(),
+            directMode   = !useTracker,
             onDismiss    = { showAddDialog = false },
-            onAdd        = { key, name -> contactsVm.addContact(key, name) }
+            onAdd        = { key, name, eph -> contactsVm.addContact(key, name, eph) }
         )
     }
 

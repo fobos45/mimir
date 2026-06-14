@@ -5,26 +5,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun AddContactDialog(
     existingKeys: Set<String> = emptySet(),
+    directMode: Boolean = false,   // true = прямое подключение, нужен pubkey:ephemeral
     onDismiss: () -> Unit,
-    onAdd: (pubkeyHex: String, nickname: String) -> Unit,
+    onAdd: (pubkeyHex: String, nickname: String, ephemeralKeyHex: String?) -> Unit,
 ) {
-    var pubkey   by remember { mutableStateOf("") }
+    var input    by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
 
-    val isDuplicate = pubkey.length == 64 && existingKeys.contains(pubkey.lowercase())
-    val isValidKey  = pubkey.length == 64 && pubkey.all { it.isLetterOrDigit() } && !isDuplicate
-    val isValid     = isValidKey && nickname.isNotBlank()
+    // В режиме прямого подключения вход: "pubkey:ephemeral" (128+1+128 символов)
+    // В обычном режиме: просто pubkey (64 символа)
+    val parsed = remember(input) { parseInput(input.trim(), directMode) }
+    val isDuplicate = parsed?.first != null && existingKeys.contains(parsed.first)
+    val isValid = parsed != null && !isDuplicate && nickname.isNotBlank()
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(20.dp),
-        title = { Text("Новый контакт") },
+        title = { Text(if (directMode) "Добавить контакт (прямое)" else "Новый контакт") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -35,33 +37,64 @@ fun AddContactDialog(
                     modifier      = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    value         = pubkey,
-                    onValueChange = { pubkey = it.trim().lowercase() },
-                    label         = { Text("Публичный ключ (64 символа)") },
-                    singleLine    = true,
+                    value         = input,
+                    onValueChange = { input = it.trim().lowercase() },
+                    label         = {
+                        Text(if (directMode) "Ключи (pubkey:ephemeral)" else "Публичный ключ (64 символа)")
+                    },
+                    placeholder   = {
+                        Text(if (directMode) "Вставьте строку вида ключ:ключ" else "64 hex символа")
+                    },
+                    singleLine    = false,
+                    minLines      = if (directMode) 3 else 1,
+                    maxLines      = if (directMode) 4 else 1,
                     modifier      = Modifier.fillMaxWidth(),
-                    isError       = pubkey.isNotEmpty() && (pubkey.length != 64 || isDuplicate),
+                    isError       = input.isNotEmpty() && (parsed == null || isDuplicate),
                     supportingText = {
                         when {
-                            isDuplicate              -> Text("Этот контакт уже добавлен",
+                            isDuplicate      -> Text("Контакт уже добавлен",
                                 color = MaterialTheme.colorScheme.error)
-                            pubkey.isNotEmpty() && pubkey.length != 64 ->
-                                Text("Ключ должен содержать ровно 64 символа")
-                            pubkey.isNotEmpty() && !pubkey.all { it.isLetterOrDigit() } ->
-                                Text("Ключ содержит недопустимые символы")
-                            else -> Text("${pubkey.length}/64",
-                                color = if (pubkey.length == 64)
-                                    MaterialTheme.colorScheme.primary
+                            input.isNotEmpty() && parsed == null ->
+                                Text(if (directMode)
+                                    "Формат: <64 hex>:<64 hex>"
                                 else
-                                    MaterialTheme.colorScheme.onSurfaceVariant)
+                                    "Ключ должен содержать ровно 64 символа")
+                            else -> {
+                                val len = if (directMode) {
+                                    val p = input.indexOf(':')
+                                    if (p >= 0) input.substring(0, p).length else input.length
+                                } else input.length
+                                Text("$len/64", color = if (parsed != null)
+                                    MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 )
+
+                if (directMode) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                    ) {
+                        Text(
+                            text = "Попросите контакт нажать кнопку 🔑 и поделиться ключами через кнопку «Поделиться»",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onAdd(pubkey, nickname); onDismiss() },
+                onClick = {
+                    parsed?.let { (pubkey, ephemeral) ->
+                        onAdd(pubkey!!, nickname, ephemeral)
+                    }
+                    onDismiss()
+                },
                 enabled = isValid
             ) { Text("Добавить") }
         },
@@ -69,4 +102,31 @@ fun AddContactDialog(
             TextButton(onClick = onDismiss) { Text("Отмена") }
         }
     )
+}
+
+/** Разбирает ввод пользователя.
+ *  Обычный режим: "abcd...64символов" → Pair(pubkey, null)
+ *  Прямой режим:  "pubkey:ephemeral"  → Pair(pubkey, ephemeral)
+ */
+private fun parseInput(input: String, directMode: Boolean): Pair<String?, String?>? {
+    val hexChars = Regex("[0-9a-f]")
+    if (!directMode) {
+        if (input.length != 64) return null
+        if (!input.all { it.isLetterOrDigit() }) return null
+        return Pair(input, null)
+    } else {
+        // Формат pubkey:ephemeral или pubkey + ephemeral слитно (128 символов)
+        val colonIdx = input.indexOf(':')
+        return if (colonIdx == 64 && input.length == 129) {
+            val pub = input.substring(0, 64)
+            val eph = input.substring(65)
+            if (pub.all { hexChars.matches(it.toString()) } &&
+                eph.all { hexChars.matches(it.toString()) })
+                Pair(pub, eph)
+            else null
+        } else if (input.length == 128 && input.all { hexChars.matches(it.toString()) }) {
+            // Без разделителя — 128 символов подряд
+            Pair(input.substring(0, 64), input.substring(64))
+        } else null
+    }
 }

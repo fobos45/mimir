@@ -24,6 +24,9 @@ class ContactsViewModel(app: Application) : AndroidViewModel(app) {
     private val _myPubkeyHex = MutableStateFlow("")
     val myPubkeyHex: StateFlow<String> = _myPubkeyHex
 
+    private val _myEphemeralKeyHex = MutableStateFlow("")
+    val myEphemeralKeyHex: StateFlow<String> = _myEphemeralKeyHex
+
     private val _connectionState = MutableStateFlow(ConnectionState())
     val connectionState: StateFlow<ConnectionState> = _connectionState
 
@@ -43,6 +46,9 @@ class ContactsViewModel(app: Application) : AndroidViewModel(app) {
                 val key = MimirBridge.publicKey()
                 if (key != null) {
                     _myPubkeyHex.value = with(MimirBridge) { key.toHex() }
+                    MimirBridge.ephemeralKey()?.let { eph ->
+                        _myEphemeralKeyHex.value = with(MimirBridge) { eph.toHex() }
+                    }
                 } else {
                     kotlinx.coroutines.delay(500)
                 }
@@ -113,11 +119,15 @@ class ContactsViewModel(app: Application) : AndroidViewModel(app) {
         } else address.take(20)
     }
 
-    fun addContact(pubkeyHex: String, nickname: String) {
+    fun addContact(pubkeyHex: String, nickname: String, ephemeralKeyHex: String? = null) {
         if (pubkeyHex.length != 64) return
         viewModelScope.launch {
             db.contacts().upsert(Contact(pubkeyHex = pubkeyHex, nickname = nickname))
-            MimirBridge.sendContactRequest(pubkeyHex, "Привет! Добавляю тебя в контакты.")
+            if (ephemeralKeyHex != null) {
+                MimirBridge.connectToPeerDirect(pubkeyHex, ephemeralKeyHex)
+            } else {
+                MimirBridge.sendContactRequest(pubkeyHex, "Привет! Добавляю тебя в контакты.")
+            }
         }
     }
 }

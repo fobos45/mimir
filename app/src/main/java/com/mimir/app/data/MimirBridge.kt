@@ -150,8 +150,16 @@ object MimirBridge {
 
     fun publicKey(): ByteArray? = peerNode?.publicKey()
 
+    fun ephemeralKey(): ByteArray? = peerNode?.ephemeralKey()
+
     fun connectToPeer(pubkeyHex: String) =
         runCatching { peerNode?.connectToPeer(pubkeyHex.hexToBytes()) }
+
+    /** Прямое подключение по известному ephemeral ключу — без трекера */
+    fun connectToPeerDirect(pubkeyHex: String, ephemeralKeyHex: String) =
+        runCatching {
+            peerNode?.connectToPeerDirect(pubkeyHex.hexToBytes(), ephemeralKeyHex.hexToBytes())
+        }
 
     fun sendMessage(pubkeyHex: String, guid: Long, msgType: Int, data: ByteArray) =
         runCatching {

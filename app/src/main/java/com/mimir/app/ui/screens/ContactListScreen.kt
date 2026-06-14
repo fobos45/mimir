@@ -30,6 +30,8 @@ fun ContactListScreen(
     onOpenChat: (String) -> Unit,
     onAddContact: () -> Unit,
     myPubkeyHex: String,
+    myEphemeralKeyHex: String = "",
+    directMode: Boolean = false,
     connectionState: ConnectionState = ConnectionState(),
     onOpenSettings: () -> Unit = {},
 ) {
@@ -110,8 +112,9 @@ fun ContactListScreen(
 
     if (showMyKey && myPubkeyHex.isNotEmpty()) {
         MyKeyDialog(
-            pubkeyHex = myPubkeyHex,
-            onDismiss = { showMyKey = false }
+            pubkeyHex       = myPubkeyHex,
+            ephemeralKeyHex = if (directMode && myEphemeralKeyHex.isNotEmpty()) myEphemeralKeyHex else null,
+            onDismiss       = { showMyKey = false }
         )
     }
 }

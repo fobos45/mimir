@@ -123,8 +123,9 @@ class ContactsViewModel(app: Application) : AndroidViewModel(app) {
         if (pubkeyHex.length != 64) return
         viewModelScope.launch {
             db.contacts().upsert(Contact(pubkeyHex = pubkeyHex, nickname = nickname))
-            if (ephemeralKeyHex != null) {
-                MimirBridge.connectToPeerDirect(pubkeyHex, ephemeralKeyHex)
+            val eph: String? = ephemeralKeyHex
+            if (eph != null) {
+                MimirBridge.connectToPeerDirect(pubkeyHex, eph)
             } else {
                 MimirBridge.sendContactRequest(pubkeyHex, "Привет! Добавляю тебя в контакты.")
             }

@@ -152,41 +152,59 @@ object MimirBridge {
 
     fun ephemeralKey(): ByteArray? = peerNode?.ephemeralKey()
 
-    fun connectToPeer(pubkeyHex: String) =
-        runCatching { peerNode?.connectToPeer(pubkeyHex.hexToBytes()) }
+    fun connectToPeer(pubkeyHex: String) {
+        try { peerNode?.connectToPeer(pubkeyHex.hexToBytes()) }
+        catch (e: Exception) { Log.e(TAG, "connectToPeer: ${e.message}") }
+    }
 
     /** Прямое подключение по известному ephemeral ключу — без трекера */
-    fun connectToPeerDirect(pubkeyHex: String, ephemeralKeyHex: String) =
-        runCatching {
+    fun connectToPeerDirect(pubkeyHex: String, ephemeralKeyHex: String) {
+        try {
             peerNode?.connectToPeerDirect(pubkeyHex.hexToBytes(), ephemeralKeyHex.hexToBytes())
-        }
+        } catch (e: Exception) { Log.e(TAG, "connectToPeerDirect: ${e.message}") }
+    }
 
-    fun sendMessage(pubkeyHex: String, guid: Long, msgType: Int, data: ByteArray) =
-        runCatching {
+    fun sendMessage(pubkeyHex: String, guid: Long, msgType: Int, data: ByteArray) {
+        try {
             peerNode?.sendMessage(pubkeyHex.hexToBytes(), guid, 0L,
                 System.currentTimeMillis(), 0L, msgType, data)
-        }
+        } catch (e: Exception) { Log.e(TAG, "sendMessage: ${e.message}") }
+    }
 
-    fun sendContactRequest(pubkeyHex: String, message: String) =
-        runCatching { peerNode?.sendContactRequest(pubkeyHex.hexToBytes(), message) }
+    fun sendContactRequest(pubkeyHex: String, message: String) {
+        try { peerNode?.sendContactRequest(pubkeyHex.hexToBytes(), message) }
+        catch (e: Exception) { Log.e(TAG, "sendContactRequest: ${e.message}") }
+    }
 
-    fun sendContactResponse(pubkeyHex: String, accepted: Boolean) =
-        runCatching { peerNode?.sendContactResponse(pubkeyHex.hexToBytes(), accepted) }
+    fun sendContactResponse(pubkeyHex: String, accepted: Boolean) {
+        try { peerNode?.sendContactResponse(pubkeyHex.hexToBytes(), accepted) }
+        catch (e: Exception) { Log.e(TAG, "sendContactResponse: ${e.message}") }
+    }
 
-    fun startCall(pubkeyHex: String) =
-        runCatching { peerNode?.startCall(pubkeyHex.hexToBytes()) }
+    fun startCall(pubkeyHex: String) {
+        try { peerNode?.startCall(pubkeyHex.hexToBytes()) }
+        catch (e: Exception) { Log.e(TAG, "startCall: ${e.message}") }
+    }
 
-    fun answerCall(pubkeyHex: String, accept: Boolean) =
-        runCatching { peerNode?.answerCall(pubkeyHex.hexToBytes(), accept) }
+    fun answerCall(pubkeyHex: String, accept: Boolean) {
+        try { peerNode?.answerCall(pubkeyHex.hexToBytes(), accept) }
+        catch (e: Exception) { Log.e(TAG, "answerCall: ${e.message}") }
+    }
 
-    fun hangupCall(pubkeyHex: String) =
-        runCatching { peerNode?.hangupCall(pubkeyHex.hexToBytes()) }
+    fun hangupCall(pubkeyHex: String) {
+        try { peerNode?.hangupCall(pubkeyHex.hexToBytes()) }
+        catch (e: Exception) { Log.e(TAG, "hangupCall: ${e.message}") }
+    }
 
-    fun sendCallPacket(pubkeyHex: String, data: ByteArray) =
-        runCatching { peerNode?.sendCallPacket(pubkeyHex.hexToBytes(), data) }
+    fun sendCallPacket(pubkeyHex: String, data: ByteArray) {
+        try { peerNode?.sendCallPacket(pubkeyHex.hexToBytes(), data) }
+        catch (e: Exception) { Log.e(TAG, "sendCallPacket: ${e.message}") }
+    }
 
-    fun requestFile(pubkeyHex: String, guid: Long, name: String, hash: String, size: Long) =
-        runCatching { peerNode?.requestFile(pubkeyHex.hexToBytes(), guid, name, hash, size) }
+    fun requestFile(pubkeyHex: String, guid: Long, name: String, hash: String, size: Long) {
+        try { peerNode?.requestFile(pubkeyHex.hexToBytes(), guid, name, hash, size) }
+        catch (e: Exception) { Log.e(TAG, "requestFile: ${e.message}") }
+    }
 
     fun setNetworkOnline(online: Boolean) = peerNode?.setNetworkOnline(online)
 

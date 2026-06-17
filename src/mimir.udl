@@ -1,0 +1,595 @@
+namespace mimir {
+    // ── Group chat crypto ─────────────────────────────────────────────────────
+
+    /// Generate a random 32-byte shared key for a new group chat.
+    bytes generate_shared_key();
+
+    /// Encrypt `plaintext` with `shared_key`.
+    /// Output: [nonce(12)][ciphertext][tag(16)]
+    [Throws=MimirError]
+    bytes encrypt_message(bytes plaintext, bytes shared_key);
+
+    /// Decrypt a message produced by encrypt_message.
+    /// Input: [nonce(12)][ciphertext][tag(16)]
+    [Throws=MimirError]
+    bytes decrypt_message(bytes encrypted, bytes shared_key);
+
+    /// Encrypt `shared_key` for `recipient_ed25519_pubkey` (ECIES).
+    /// Output: [eph_pubkey(32)][nonce(12)][ciphertext][tag(16)]
+    [Throws=MimirError]
+    bytes encrypt_shared_key(bytes shared_key, bytes recipient_ed25519_pubkey);
+
+    /// Decrypt a shared key produced by encrypt_shared_key.
+    /// `seed` is the 32-byte Ed25519 signing-key seed of the recipient.
+    [Throws=MimirError]
+    bytes decrypt_shared_key(bytes encrypted, bytes seed);
+};
+
+// ── Errors ────────────────────────────────────────────────────────────────────
+
+[Error]
+enum MimirError {
+    "Connection",
+    "Auth",
+    "Protocol",
+    "Crypto",
+    "Io",
+};
+
+// ── Shared data types ─────────────────────────────────────────────────────────
+
+/// Contact profile info exchanged with peers on every connection.
+dictionary ContactInfo {
+    string  nickname;
+    string  info;
+    bytes?  avatar;
+    i64     update_time;
+};
+
+enum CallStatus {
+    "Idle",
+    "Calling",    // We started a call, waiting for answer
+    "Receiving",  // Incoming call, waiting for us to answer
+    "InCall",     // Active call
+    "Hangup",     // Call ended
+};
+
+/// A group chat message as returned by get_messages_since.
+dictionary GroupMessage {
+    i64    message_id;
+    i64    guid;
+    i64    timestamp;    // milliseconds since Unix epoch
+    bytes  author;       // 32-byte sender public key
+    bytes  data;         // encrypted message blob
+};
+
+/// Lightweight member entry (pubkey + permissions + online status).
+dictionary GroupMember {
+    bytes  pubkey;
+    u32    permissions;
+    boolean online;
+    i64    last_seen;    // Unix seconds, 0 if currently online or never seen
+};
+
+/// Member entry with encrypted profile blob (from get_members_info).
+dictionary GroupMemberInfo {
+    bytes   pubkey;
+    bytes?  encrypted_info;   // null if member has no profile set
+    i64     timestamp;
+};
+
+/// File metadata returned by FilesNode.file_info.
+dictionary FileInfo {
+    u64 total_size;
+    i64 message_guid;
+};
+
+/// Pre-encrypted member profile blob returned by on_member_info_request.
+/// Kotlin encrypts (nickname + info + avatar) with the chat shared key
+/// and returns the ciphertext so Rust can transmit it to the mediator.
+dictionary MemberInfoData {
+    bytes  encrypted_blob;
+    i64    timestamp;
+};
+
+/// Active Yggdrasil router peer and its quality metrics.
+/// Returned by PeerNode.wait_for_peer_info.
+dictionary YggPeerInfo {
+    string? uri;       // null if no peer is currently active
+    u32     cost;      // last measured routing cost (lower = better), 0 if unknown
+    u32     failures;  // accumulated failure count for this peer
+};
+
+// ── Callback interfaces (implemented by Kotlin/Swift) ─────────────────────────
+
+/// Provides local user info and stores contact info received from peers.
+/// All methods are called from Rust connection tasks — must not block long.
+callback interface InfoProvider {
+    /// Return our current contact info if it was updated after `since_time`,
+    /// or null if nothing changed (so we skip sending an update).
+    ContactInfo? get_my_info(i64 since_time);
+
+    /// Return the last known update timestamp for a peer's contact info.
+    /// Used to send an efficient info request ("only send if newer than X").
+    i64 get_contact_update_time(bytes pubkey);
+
+    /// Called when a peer sent us their updated contact info.
+    void update_contact_info(bytes pubkey, ContactInfo info);
+
+    /// Return the directory path where file attachments are stored.
+    /// Used when a received message includes a file payload to be saved.
+    string get_files_dir();
+
+    /// Return permission flags for a peer.
+    /// 0 = unknown/stranger (only contact requests allowed),
+    /// 1 = contact (full messaging allowed).
+    i32 get_peer_flags(bytes pubkey);
+};
+
+/// Receives P2P networking events. All callbacks are invoked from Rust
+/// connection tasks and must return quickly.
+callback interface PeerEventListener {
+    /// Yggdrasil overlay network came online (first peer) or went offline (last peer).
+    void on_connectivity_changed(boolean is_online);
+
+    /// Mutual authentication succeeded; peer is ready to exchange messages.
+    void on_peer_connected(bytes pubkey, string address);
+
+    /// Connection to peer closed.
+    /// `dead_peer` = true if we detected the peer was unreachable (no pong).
+    void on_peer_disconnected(bytes pubkey, string address, boolean dead_peer);
+
+    /// A text/file message arrived from `pubkey`.
+    ///
+    /// For text (msg_type == 0 or 2): `data` is the message content.
+    /// For image/file (msg_type == 1 or 3): `data` is the JSON metadata only
+    /// (no file bytes).  Use `request_file` to download the actual file.
+    /// For file response (msg_type == 4001): `data` is the wire payload —
+    /// [metaJsonSize(4 BE)][metaJson][fileBytes] — save the file to disk.
+    void on_message_received(
+        bytes  pubkey,
+        i64    guid,
+        i64    reply_to,
+        i64    send_time,
+        i64    edit_time,
+        i32    msg_type,
+        bytes  data
+    );
+
+    /// The peer acknowledged receipt of our message with the given guid.
+    void on_message_delivered(bytes pubkey, i64 guid);
+
+    /// Peer is calling us.
+    void on_incoming_call(bytes pubkey);
+
+    /// Call state changed (Calling, InCall, Hangup, …).
+    /// `pubkey` is null only for Idle status.
+    void on_call_status_changed(CallStatus status, bytes? pubkey);
+
+    /// Raw audio packet from peer during an active call.
+    /// Passed through directly to the audio subsystem (stays in Kotlin/Swift
+    /// until audio moves to Rust in a later phase).
+    void on_call_packet(bytes pubkey, bytes data);
+
+    /// A large file/image is being received over the data stream.
+    /// Fired after each chunk; `bytes_received` increases until it equals `total_bytes`.
+    void on_file_receive_progress(bytes pubkey, i64 guid, i64 bytes_received, i64 total_bytes);
+
+    /// A large file/image is being sent over the data stream.
+    /// Fired after each chunk; `bytes_sent` increases until it equals `total_bytes`.
+    void on_file_send_progress(bytes pubkey, i64 guid, i64 bytes_sent, i64 total_bytes);
+
+    /// A file has been fully received and streamed to disk.
+    /// `meta_json` is the JSON metadata from the stream header.
+    /// `file_path` is the absolute path to the temp file on disk.
+    /// The receiver should move/rename the file to its final location.
+    void on_file_received(
+        bytes   pubkey,
+        i64     guid,
+        i64     reply_to,
+        i64     send_time,
+        i64     edit_time,
+        i32     msg_type,
+        string  meta_json,
+        string  file_path
+    );
+
+    /// A contact (friend) request arrived from a peer.
+    /// Includes the sender's profile info so it can be displayed in the UI.
+    void on_contact_request(
+        bytes    pubkey,
+        string   message,
+        string   nickname,
+        string   info,
+        bytes?   avatar
+    );
+
+    /// A contact response arrived (accepted or rejected our request).
+    void on_contact_response(bytes pubkey, boolean accepted);
+
+    /// Tracker announce completed.
+    /// `ok` = true if at least one tracker accepted the announce.
+    /// `ttl` = TTL in seconds returned by the tracker (0 on failure).
+    void on_tracker_announce(boolean ok, i32 ttl);
+};
+
+/// Receives file server upload/download events.
+/// All callbacks are invoked from Rust async tasks — must return quickly.
+callback interface FilesEventListener {
+    void on_upload_progress(bytes file_hash, i64 message_guid, u64 bytes_sent, u64 total_bytes);
+    void on_upload_complete(bytes file_hash, i64 message_guid);
+    void on_upload_error(bytes file_hash, i64 message_guid, string error);
+    void on_download_progress(bytes file_hash, i64 message_guid, u64 bytes_received, u64 total_bytes);
+    void on_download_complete(bytes file_hash, i64 message_guid, string file_path);
+    void on_download_error(bytes file_hash, i64 message_guid, string error);
+};
+
+/// Receives mediator (group-chat server) events.
+/// All callbacks are invoked from Rust async tasks — must return quickly.
+///
+/// Note: encryption of message blobs is handled by the caller (Kotlin/Swift).
+/// Rust passes encrypted bytes through unchanged.
+callback interface MediatorEventListener {
+    /// Authenticated connection established to this mediator.
+    void on_connected(bytes mediator_pubkey);
+
+    /// Subscription to `chat_id` confirmed.
+    /// `last_message_id` is the highest message ID on the mediator for this chat.
+    /// If it exceeds your local last ID, call `get_messages_since` to catch up.
+    /// For a first-time join use `since_id = 0` to fetch the full history.
+    void on_subscribed(bytes mediator_pubkey, i64 chat_id, i64 last_message_id);
+
+    /// An encrypted group chat message arrived from the mediator push.
+    void on_push_message(
+        i64    chat_id,
+        i64    message_id,
+        i64    guid,
+        i64    timestamp,
+        bytes  author,
+        bytes  data
+    );
+
+    /// A mediator-generated system message arrived (always unencrypted).
+    /// body[0] is the event code; see SYS_* constants in the protocol.
+    void on_system_message(
+        i64    chat_id,
+        i64    message_id,
+        i64    guid,
+        i64    timestamp,
+        bytes  body
+    );
+
+    /// A group chat invitation arrived.
+    /// `encrypted_data` is the AES-wrapped shared key for the recipient.
+    /// `mediator_pubkey` identifies which mediator delivered this invite.
+    void on_push_invite(
+        i64     invite_id,
+        i64     chat_id,
+        bytes   from_pubkey,
+        i64     timestamp,
+        string  chat_name,
+        string  chat_desc,
+        bytes?  chat_avatar,
+        bytes   encrypted_data,
+        bytes   mediator_pubkey
+    );
+
+    /// Mediator asks us to (re-)send our encrypted member profile.
+    /// Return MemberInfoData if our info is newer than last_update, else null.
+    MemberInfoData? on_member_info_request(i64 chat_id, i64 last_update);
+
+    /// Mediator broadcast: a member's encrypted profile was updated.
+    void on_member_info_update(
+        i64     chat_id,
+        bytes   member_pubkey,
+        bytes?  encrypted_info,
+        i64     timestamp
+    );
+
+    /// Mediator broadcast: a member came online or went offline.
+    void on_member_online_status_changed(
+        i64     chat_id,
+        bytes   member_pubkey,
+        boolean is_online,
+        i64     timestamp
+    );
+
+    /// Connection to this mediator ended.
+    void on_disconnected(bytes mediator_pubkey);
+};
+
+// ── Main object ───────────────────────────────────────────────────────────────
+
+/// Top-level P2P node.  One instance per app lifetime.
+///
+/// Constructor starts:
+///   - a Yggdrasil node with `signing_key` and `ygg_peers`
+///   - an accept loop listening on `peer_port` for inbound connections
+///
+/// All methods are thread-safe.
+interface PeerNode {
+    /// Create and start the node.
+    ///
+    /// `signing_key`    – 32-byte Ed25519 seed (private key).
+    /// `ygg_peers`      – Yggdrasil bootstrap peer URIs.
+    /// `peer_port`      – Port used for P2P connections (listen + outbound).
+    /// `event_listener` – Receives connection and message events.
+    /// `info_provider`  – Supplies and stores contact profile info.
+    [Throws=MimirError]
+    constructor(
+        bytes                signing_key,
+        bytes?               ephemeral_key,
+        sequence<string>     ygg_peers,
+        u16                  peer_port,
+        sequence<string>     trackers,
+        PeerEventListener    event_listener,
+        InfoProvider         info_provider
+    );
+
+    /// Our 32-byte Ed25519 public key (= Yggdrasil identity).
+    bytes public_key();
+
+    /// The 32-byte ephemeral seed used for the Yggdrasil node.
+    /// Persist this and pass it back via `ephemeral_key` constructor param
+    /// to keep the same routing address across restarts.
+    bytes ephemeral_key();
+
+    /// Replace the list of managed Yggdrasil router peers (priority = slice order).
+    /// Metrics are preserved for URIs that remain in the new list.
+    void set_ygg_peers(sequence<string> peers);
+
+    /// Inform the selector whether the device has general internet connectivity.
+    /// false → suppress peer switching, let Yggdrasil reconnect on its own.
+    void set_network_online(boolean online);
+
+    /// Block until the active Yggdrasil peer info changes, then return it.
+    /// Returns the current state if no change occurs within timeout_ms milliseconds.
+    /// Designed for a long-poll loop to keep the notification bar up to date.
+    YggPeerInfo wait_for_peer_info(u64 timeout_ms);
+
+    /// Announce our current ephemeral Yggdrasil address to all configured trackers.
+    ///
+    /// Returns immediately; I/O is done in the background.
+    /// Call once at startup and periodically to keep the tracker entry alive.
+    void announce_to_trackers();
+
+    /// Queue a message for delivery to `pubkey`.
+    /// The connection must already exist (was established via connect_to_peer
+    /// or an inbound connection triggered on_peer_connected).
+    ///
+    /// For text (msg_type 0 or 2): pass message content as `data`.
+    /// For image/file (msg_type 1 or 3): pass only the JSON metadata as `data`.
+    /// The recipient uses `request_file` to download the actual file separately.
+    [Throws=MimirError]
+    void send_message(
+        bytes  pubkey,
+        i64    guid,
+        i64    reply_to,
+        i64    send_time,
+        i64    edit_time,
+        i32    msg_type,
+        bytes  data
+    );
+
+    /// Open an outbound connection to `pubkey`.
+    /// Returns immediately; on_peer_connected fires when auth completes.
+    [Throws=MimirError]
+    void connect_to_peer(bytes pubkey);
+
+    /// Connect directly using a known ephemeral Yggdrasil key (no tracker needed).
+    /// Use when both devices share the same bootstrap peer and the ephemeral key
+    /// was exchanged out-of-band (e.g. shown as QR / shared link).
+    [Throws=MimirError]
+    void connect_to_peer_direct(bytes pubkey, bytes ephemeral_key);
+
+    /// Send a contact (friend) request to `pubkey` with an introductory message.
+    /// The sender's profile info is automatically attached.
+    [Throws=MimirError]
+    void send_contact_request(bytes pubkey, string message);
+
+    /// Send a contact response (accept/reject) to `pubkey`.
+    [Throws=MimirError]
+    void send_contact_response(bytes pubkey, boolean accepted);
+
+    /// Request a file from a connected peer.
+    ///
+    /// `name` is the random filename from the message metadata.
+    /// `hash` is the SHA-256 hex hash for verification.
+    /// The peer will stream the file back as a FILE_RESPONSE delivered
+    /// through `on_message_received` with msg_type = 4001.
+    [Throws=MimirError]
+    void request_file(bytes pubkey, i64 guid, string name, string hash, i64 size);
+
+    /// Close the connection to `pubkey` (if any).
+    void disconnect_peer(bytes pubkey);
+
+    /// Initiate an outgoing call to `pubkey`.
+    [Throws=MimirError]
+    void start_call(bytes pubkey);
+
+    /// Accept (true) or reject (false) an incoming call from `pubkey`.
+    [Throws=MimirError]
+    void answer_call(bytes pubkey, boolean accept);
+
+    /// Hang up an active or ringing call with `pubkey`.
+    [Throws=MimirError]
+    void hangup_call(bytes pubkey);
+
+    /// Send a raw call-packet to `pubkey` during an active call.
+    [Throws=MimirError]
+    void send_call_packet(bytes pubkey, bytes data);
+
+    /// Yggdrasil peer-connection diagnostics, JSON-encoded.
+    string get_peers_json();
+
+    /// Yggdrasil routing-path diagnostics, JSON-encoded.
+    string get_paths_json();
+
+    /// Yggdrasil spanning-tree diagnostics, JSON-encoded.
+    string get_tree_json();
+
+    /// Yggdrasil spanning-tree diagnostics, JSON-encoded.
+    void retry_peers_now();
+
+    /// Add new peer to connect
+    void add_peer(string uri);
+
+    /// Remove one of added peers
+    void remove_peer(string uri);
+
+    /// Stop the node and close all connections.
+    void stop();
+};
+
+// ── Mediator / group-chat node ────────────────────────────────────────────────
+
+/// Manages connections to one or more mediator servers.
+///
+/// Shares the Yggdrasil identity from an existing `PeerNode`.
+/// All methods are thread-safe.
+interface MediatorNode {
+    /// Create and start the mediator node.
+    ///
+    /// `peer_node`      – Running PeerNode (its Ygg node + runtime are shared).
+    /// `mediator_port`  – Port mediator servers listen on.
+    /// `event_listener` – Receives all mediator events.
+    [Throws=MimirError]
+    constructor(
+        PeerNode               peer_node,
+        u16                    mediator_port,
+        MediatorEventListener  event_listener
+    );
+
+    // ── Connection ────────────────────────────────────────────────────────────
+
+    /// Dial a mediator.  Returns immediately; on_connected fires on success.
+    [Throws=MimirError]
+    void connect_to_mediator(bytes mediator_pubkey);
+
+    /// Probe all live mediator connections after Yggdrasil connectivity restores.
+    void check_connections();
+
+    /// Stop all mediator connections.
+    void stop();
+
+    // ── Group chat CRUD ───────────────────────────────────────────────────────
+
+    /// Create a new group chat (includes proof-of-work; may take a few seconds).
+    /// Returns the mediator-assigned chat ID.
+    [Throws=MimirError]
+    i64 create_chat(bytes mediator_pubkey, string name, string description, bytes? avatar);
+
+    [Throws=MimirError]
+    void delete_chat(bytes mediator_pubkey, i64 chat_id);
+
+    [Throws=MimirError]
+    void update_chat_info(bytes mediator_pubkey, i64 chat_id, string? name, string? description, bytes? avatar);
+
+    // ── Membership ────────────────────────────────────────────────────────────
+
+    [Throws=MimirError]
+    void add_user(bytes mediator_pubkey, i64 chat_id, bytes user_pubkey);
+
+    [Throws=MimirError]
+    void delete_user(bytes mediator_pubkey, i64 chat_id, bytes user_pubkey);
+
+    [Throws=MimirError]
+    void leave_chat(bytes mediator_pubkey, i64 chat_id);
+
+    /// Change a member's permission flags (ban, promote, demote).
+    [Throws=MimirError]
+    void change_member_status(bytes mediator_pubkey, i64 chat_id, bytes user_pubkey, u8 new_permissions);
+
+    // ── Messages ──────────────────────────────────────────────────────────────
+
+    /// Subscribe to push messages for `chat_id`.
+    /// Returns the server's last message ID.
+    [Throws=MimirError]
+    i64 subscribe(bytes mediator_pubkey, i64 chat_id);
+
+    /// Send an encrypted message blob.  Returns the server-assigned message ID.
+    /// `timestamp` must be milliseconds since epoch (e.g. System.currentTimeMillis()).
+    /// Rust converts it to seconds internally before sending.
+    [Throws=MimirError]
+    i64 send_group_message(bytes mediator_pubkey, i64 chat_id, i64 guid, i64 timestamp, bytes data);
+
+    /// Delete a message.  `guid` is the client-generated GUID originally passed to
+    /// send_group_message — NOT the server-assigned message_id returned by it.
+    [Throws=MimirError]
+    void delete_message(bytes mediator_pubkey, i64 chat_id, i64 guid);
+
+    [Throws=MimirError]
+    i64 get_last_message_id(bytes mediator_pubkey, i64 chat_id);
+
+    [Throws=MimirError]
+    sequence<GroupMessage> get_messages_since(bytes mediator_pubkey, i64 chat_id, i64 since_id, u32 limit);
+
+    // ── Invites ───────────────────────────────────────────────────────────────
+
+    /// Send an invite to `recipient_pubkey`.
+    /// `encrypted_data` is the AES-encrypted shared key for the recipient.
+    [Throws=MimirError]
+    void send_invite(bytes mediator_pubkey, i64 chat_id, bytes recipient_pubkey, bytes encrypted_data);
+
+    [Throws=MimirError]
+    void respond_to_invite(bytes mediator_pubkey, i64 chat_id, i64 invite_id, boolean accept);
+
+    // ── Member info ───────────────────────────────────────────────────────────
+
+    /// Push our pre-encrypted profile blob to the mediator.
+    [Throws=MimirError]
+    void update_member_info(bytes mediator_pubkey, i64 chat_id, bytes encrypted_blob, i64 timestamp);
+
+    [Throws=MimirError]
+    sequence<GroupMemberInfo> get_members_info(bytes mediator_pubkey, i64 chat_id, i64 since_timestamp);
+
+    [Throws=MimirError]
+    sequence<GroupMember> get_members(bytes mediator_pubkey, i64 chat_id);
+};
+
+// ── Files server node ─────────────────────────────────────────────────────────
+
+/// Manages encrypted file uploads and downloads through file servers.
+///
+/// Shares the Yggdrasil identity from an existing `PeerNode`.
+/// All methods are thread-safe.
+interface FilesNode {
+    /// Create a new FilesNode.
+    ///
+    /// `peer_node`       – Running PeerNode (its Ygg node + runtime are shared).
+    /// `files_port`      – Port file servers listen on.
+    /// `event_listener`  – Receives upload/download progress events.
+    [Throws=MimirError]
+    constructor(
+        PeerNode               peer_node,
+        u16                    files_port,
+        FilesEventListener     event_listener
+    );
+
+    /// Upload a file to the server.
+    /// Returns the 32-byte SHA-256 hash of the encrypted file.
+    ///
+    /// `server_pubkey`   – 32-byte public key of the file server.
+    /// `file_path`       – Path to the plaintext file on disk.
+    /// `message_guid`    – Client-generated message GUID for this file.
+    /// `encryption_key`  – 32-byte ChaCha20-Poly1305 key for encryption.
+    [Throws=MimirError]
+    bytes upload_file(bytes server_pubkey, string file_path, i64 message_guid, bytes encryption_key);
+
+    /// Download a file from the server and decrypt it to `dest_path`.
+    ///
+    /// `server_pubkey`   – 32-byte public key of the file server.
+    /// `file_hash`       – 32-byte SHA-256 hash of the encrypted file.
+    /// `message_guid`    – Client-generated message GUID.
+    /// `dest_path`       – Where to write the decrypted file.
+    /// `encryption_key`  – 32-byte ChaCha20-Poly1305 key for decryption.
+    [Throws=MimirError]
+    void download_file(bytes server_pubkey, bytes file_hash, i64 message_guid, string dest_path, bytes encryption_key);
+
+    /// Query file metadata from the server.
+    [Throws=MimirError]
+    FileInfo file_info(bytes server_pubkey, bytes file_hash);
+
+    /// Stop all cached file server connections.
+    void stop();
+};

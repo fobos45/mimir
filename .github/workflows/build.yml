@@ -25,6 +25,15 @@ jobs:
           repository: Revertron/mimir
           path: mimir-master
 
+      - name: Применить патч (connect_to_peer_direct)
+        run: |
+          # Копируем изменённые файлы из нашего репозитория поверх оригинала
+          cp mimir-android/mimir-patches/peer_mod.rs  mimir-master/src/peer/mod.rs
+          cp mimir-android/mimir-patches/mimir.udl    mimir-master/src/mimir.udl
+          echo "Патч применён"
+          grep -c "connect_to_peer_direct" mimir-master/src/peer/mod.rs && echo "✓ mod.rs OK"
+          grep -c "connect_to_peer_direct" mimir-master/src/mimir.udl  && echo "✓ udl OK"
+
       - name: Кэш cargo
         uses: actions/cache@v4
         with:

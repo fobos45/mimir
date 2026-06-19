@@ -120,13 +120,19 @@ class ContactsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun addContact(pubkeyHex: String, nickname: String, ephemeralKeyHex: String? = null) {
-        if (pubkeyHex.length != 64) return
+        android.util.Log.i("ContactsVM", "addContact: pubkey=${pubkeyHex.take(16)}… ephemeral=${ephemeralKeyHex?.take(16)}")
+        if (pubkeyHex.length != 64) {
+            android.util.Log.e("ContactsVM", "addContact: invalid pubkey length ${pubkeyHex.length}")
+            return
+        }
         viewModelScope.launch {
             db.contacts().upsert(Contact(pubkeyHex = pubkeyHex, nickname = nickname))
             val eph: String? = ephemeralKeyHex
             if (eph != null) {
+                android.util.Log.i("ContactsVM", "addContact: using DIRECT mode")
                 MimirBridge.connectToPeerDirect(pubkeyHex, eph)
             } else {
+                android.util.Log.i("ContactsVM", "addContact: using TRACKER mode")
                 MimirBridge.sendContactRequest(pubkeyHex, "Привет! Добавляю тебя в контакты.")
             }
         }

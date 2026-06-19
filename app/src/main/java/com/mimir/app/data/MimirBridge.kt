@@ -133,7 +133,9 @@ object MimirBridge {
                     .apply()
             }
 
-            node.announceToTrackers()
+            if (useTracker) {
+                node.announceToTrackers()
+            }
             peerNode = node
             Log.i(TAG, "PeerNode started, pubkey=${node.publicKey().toHex().take(16)}…")
         } catch (e: Exception) {
@@ -159,9 +161,20 @@ object MimirBridge {
 
     /** Прямое подключение по известному ephemeral ключу — без трекера */
     fun connectToPeerDirect(pubkeyHex: String, ephemeralKeyHex: String) {
+        Log.i(TAG, "connectToPeerDirect called: pubkey=${pubkeyHex.take(16)}… ephemeral=${ephemeralKeyHex.take(16)}…")
+        if (peerNode == null) {
+            Log.e(TAG, "connectToPeerDirect: peerNode is null! PeerNode not started yet.")
+            return
+        }
         try {
-            peerNode?.connectToPeerDirect(pubkeyHex.hexToBytes(), ephemeralKeyHex.hexToBytes())
-        } catch (e: Exception) { Log.e(TAG, "connectToPeerDirect: ${e.message}") }
+            val pub = pubkeyHex.hexToBytes()
+            val eph = ephemeralKeyHex.hexToBytes()
+            Log.i(TAG, "connectToPeerDirect: pubkey bytes=${pub.size}, ephemeral bytes=${eph.size}")
+            peerNode?.connectToPeerDirect(pub, eph)
+            Log.i(TAG, "connectToPeerDirect: call succeeded, waiting for onPeerConnected")
+        } catch (e: Exception) {
+            Log.e(TAG, "connectToPeerDirect FAILED: ${e.javaClass.simpleName}: ${e.message}", e)
+        }
     }
 
     fun sendMessage(pubkeyHex: String, guid: Long, msgType: Int, data: ByteArray) {

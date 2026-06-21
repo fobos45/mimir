@@ -2,8 +2,10 @@ package com.mimir.app.data
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import uniffi.mimir.*
 
 object MimirBridge {
@@ -174,7 +176,7 @@ object MimirBridge {
             repeat(8) { attempt ->
                 if (peerNode == null) {
                     Log.e(TAG, "connectToPeerDirect: peerNode null on attempt ${attempt + 1}")
-                    kotlinx.coroutines.delay(3000)
+                    delay(3000)
                     return@repeat
                 }
                 val startMs = System.currentTimeMillis()
@@ -187,7 +189,7 @@ object MimirBridge {
                     val elapsed = System.currentTimeMillis() - startMs
                     Log.e(TAG, "connectToPeerDirect attempt ${attempt + 1} failed after ${elapsed}ms: ${e.message}")
                 }
-                kotlinx.coroutines.delay(5000)
+                delay(5000)
             }
             Log.i(TAG, "connectToPeerDirect: all attempts exhausted for ${pubkeyHex.take(16)}…")
         }

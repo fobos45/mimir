@@ -25,6 +25,7 @@ class ConnectionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        android.util.Log.i("ConnectionService", "onCreate() — service starting")
         createChannels()
         db = Room.databaseBuilder(applicationContext, AppDatabase::class.java, "mimir.db").build()
         startForeground(NOTIFICATION_ID, buildServiceNotification())
@@ -32,11 +33,17 @@ class ConnectionService : Service() {
         collectEvents()
     }
 
+    private var lastStartedPeers: List<String>? = null
+
     private fun startMimir() {
         val peers = getEnabledPeers()
         if (peers.isEmpty()) {
-            // Нет активных пиров — явно сигнализируем офлайн и не запускаем PeerNode
-            com.mimir.app.data.MimirBridge.stop()
+            MimirBridge.stop()
+            lastStartedPeers = null
+            return
+        }
+        // Не пересоздаём PeerNode если конфигурация не изменилась и узел уже жив
+        if (peers == lastStartedPeers && MimirBridge.publicKey() != null) {
             return
         }
         val useTracker = getSharedPreferences("mimir_settings", MODE_PRIVATE)
@@ -52,6 +59,7 @@ class ConnectionService : Service() {
             filesDir   = filesDir.absolutePath,
             useTracker = useTracker,
         )
+        lastStartedPeers = peers
     }
 
     private fun getEnabledPeers(): List<String> {
@@ -212,11 +220,27 @@ class ConnectionService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.util.Log.i("ConnectionService", "onStartCommand() called, flags=$flags startId=$startId")
+        return START_STICKY
+    }
     override fun onBind(intent: Intent?): IBinder? = null
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        android.util.Log.w("ConnectionService", "onTaskRemoved() — app swiped away from recents")
+        super.onTaskRemoved(rootIntent)
+    }
     override fun onDestroy() {
+        android.util.Log.w("ConnectionService", "onDestroy() — service is being destroyed!")
         scope.cancel()
         MimirBridge.stop()
         super.onDestroy()
+    }
+    override fun onLowMemory() {
+        android.util.Log.w("ConnectionService", "onLowMemory() — system is low on memory")
+        super.onLowMemory()
+    }
+    override fun onTrimMemory(level: Int) {
+        android.util.Log.w("ConnectionService", "onTrimMemory(level=$level)")
+        super.onTrimMemory(level)
     }
 }

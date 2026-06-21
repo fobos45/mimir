@@ -152,6 +152,9 @@ object MimirBridge {
 
     fun publicKey(): ByteArray? = peerNode?.publicKey()
 
+    fun hasActivePeers(): Boolean =
+        try { peerNode?.isOnline() ?: false } catch (e: Exception) { false }
+
     fun ephemeralKey(): ByteArray? = peerNode?.ephemeralKey()
 
     fun connectToPeer(pubkeyHex: String) {
@@ -159,21 +162,34 @@ object MimirBridge {
         catch (e: Exception) { Log.e(TAG, "connectToPeer: ${e.message}") }
     }
 
-    /** Прямое подключение по известному ephemeral ключу — без трекера */
-    fun connectToPeerDirect(pubkeyHex: String, ephemeralKeyHex: String) {
+    /** Прямое подключение по известному ephemeral ключу — без трекера.
+     *  Делает несколько попыток с задержкой, т.к. первое Yggdrasil-соединение
+     *  через bootstrap-пир может потребовать времени на установление маршрута. */
+    fun connectToPeerDirect(pubkeyHex: String, ephemeralKeyHex: String, scope: kotlinx.coroutines.CoroutineScope) {
         Log.i(TAG, "connectToPeerDirect called: pubkey=${pubkeyHex.take(16)}… ephemeral=${ephemeralKeyHex.take(16)}…")
-        if (peerNode == null) {
-            Log.e(TAG, "connectToPeerDirect: peerNode is null! PeerNode not started yet.")
-            return
-        }
-        try {
+        scope.launch {
             val pub = pubkeyHex.hexToBytes()
             val eph = ephemeralKeyHex.hexToBytes()
-            Log.i(TAG, "connectToPeerDirect: pubkey bytes=${pub.size}, ephemeral bytes=${eph.size}")
-            peerNode?.connectToPeerDirect(pub, eph)
-            Log.i(TAG, "connectToPeerDirect: call succeeded, waiting for onPeerConnected")
-        } catch (e: Exception) {
-            Log.e(TAG, "connectToPeerDirect FAILED: ${e.javaClass.simpleName}: ${e.message}", e)
+
+            repeat(8) { attempt ->
+                if (peerNode == null) {
+                    Log.e(TAG, "connectToPeerDirect: peerNode null on attempt ${attempt + 1}")
+                    kotlinx.coroutines.delay(3000)
+                    return@repeat
+                }
+                val startMs = System.currentTimeMillis()
+                try {
+                    Log.i(TAG, "connectToPeerDirect: attempt ${attempt + 1}/8 starting…")
+                    peerNode?.connectToPeerDirect(pub, eph)
+                    val elapsed = System.currentTimeMillis() - startMs
+                    Log.i(TAG, "connectToPeerDirect: attempt ${attempt + 1} call returned after ${elapsed}ms (async — check onPeerConnected next)")
+                } catch (e: Exception) {
+                    val elapsed = System.currentTimeMillis() - startMs
+                    Log.e(TAG, "connectToPeerDirect attempt ${attempt + 1} failed after ${elapsed}ms: ${e.message}")
+                }
+                kotlinx.coroutines.delay(5000)
+            }
+            Log.i(TAG, "connectToPeerDirect: all attempts exhausted for ${pubkeyHex.take(16)}…")
         }
     }
 

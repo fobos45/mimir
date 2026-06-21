@@ -96,10 +96,19 @@ class ContactsViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        // Начальный статус — подключение
+        // Активно опрашиваем статус сети первые 30 секунд после старта —
+        // событие on_connectivity_changed может прийти с задержкой из-за
+        // периодичности peer-event monitor в Rust-коде.
         viewModelScope.launch {
-            kotlinx.coroutines.delay(8000)
-            // Если через 8 сек всё ещё CONNECTING — значит офлайн
+            repeat(15) {
+                kotlinx.coroutines.delay(2000)
+                if (_connectionState.value.status != NetworkStatus.CONNECTING) return@launch
+                if (MimirBridge.hasActivePeers()) {
+                    _connectionState.update { it.copy(status = NetworkStatus.ONLINE) }
+                    return@launch
+                }
+            }
+            // Через 30 секунд активного опроса — если так и не онлайн, офлайн
             if (_connectionState.value.status == NetworkStatus.CONNECTING) {
                 _connectionState.update { it.copy(status = NetworkStatus.OFFLINE) }
             }
@@ -130,7 +139,7 @@ class ContactsViewModel(app: Application) : AndroidViewModel(app) {
             val eph: String? = ephemeralKeyHex
             if (eph != null) {
                 android.util.Log.i("ContactsVM", "addContact: using DIRECT mode")
-                MimirBridge.connectToPeerDirect(pubkeyHex, eph)
+                MimirBridge.connectToPeerDirect(pubkeyHex, eph, viewModelScope)
             } else {
                 android.util.Log.i("ContactsVM", "addContact: using TRACKER mode")
                 MimirBridge.sendContactRequest(pubkeyHex, "Привет! Добавляю тебя в контакты.")

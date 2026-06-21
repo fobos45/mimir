@@ -781,6 +781,13 @@ impl PeerNode {
         self.rt.block_on(self.state.node.retry_peers_now())
     }
 
+    /// Returns true if at least one Yggdrasil bootstrap peer is currently active.
+    /// Useful for polling connection status without waiting for the
+    /// periodic on_connectivity_changed callback.
+    pub fn is_online(&self) -> bool {
+        self.rt.block_on(self.state.node.count_active_peers()) > 0
+    }
+
     /// Add new peer to connect
     pub fn add_peer(&self, uri: String) {
         if let Err(e) = self.rt.block_on(self.state.node.add_peer(&uri)) {

@@ -431,6 +431,9 @@ interface PeerNode {
     /// Yggdrasil spanning-tree diagnostics, JSON-encoded.
     void retry_peers_now();
 
+    /// Returns true if at least one Yggdrasil bootstrap peer is currently active.
+    boolean is_online();
+
     /// Add new peer to connect
     void add_peer(string uri);
 
